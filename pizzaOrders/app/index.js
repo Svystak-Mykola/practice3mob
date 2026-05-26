@@ -6,8 +6,9 @@ import {
   NavigationIndependentTree,
 } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import React, { createContext, useContext, useState, useMemo, useEffect } from "react";
+import React, { createContext, useContext, useState, useMemo, useEffect, useRef } from "react";
 import {
+  Animated,
   FlatList,
   StyleSheet,
   TouchableOpacity,
@@ -130,46 +131,103 @@ function UsersScreen() {
 }
 
 function OrdersScreen() {
-  const { orders, darkMode, deleteOrder, kitchenMode } = useContext(AppStateContext);
+  const { orders, darkMode, deleteOrder, kitchenMode, themeAnim } = useContext(AppStateContext);
   const [picked, setPicked] = useState(null);
   const [open, setOpen] = useState(false);
   const list = useMemo(() => {
     if (kitchenMode) return orders.filter((o) => o.status === "Готується" || o.status === "В черзі");
     return orders;
   }, [orders, kitchenMode]);
+
+  const itemAnimations = useRef([]);
+  const pressAnimations = useRef({});
+  const headerAnim = useRef(new Animated.Value(0)).current;
+  const modalAnim = useRef(new Animated.Value(0)).current;
+
+  if (itemAnimations.current.length < list.length) {
+    itemAnimations.current = list.map((_, i) => itemAnimations.current[i] || new Animated.Value(0));
+  }
+
+  useEffect(() => {
+    Animated.stagger(
+      70,
+      itemAnimations.current.map((anim) =>
+        Animated.spring(anim, { toValue: 1, useNativeDriver: true, friction: 12, tension: 80 })
+      )
+    ).start();
+  }, [list.length]);
+
+  useEffect(() => {
+    Animated.spring(headerAnim, { toValue: 1, useNativeDriver: true, friction: 14, tension: 80 }).start();
+  }, []);
+
+  useEffect(() => {
+    Animated.spring(modalAnim, { toValue: open ? 1 : 0, useNativeDriver: true, friction: 10, tension: 120 }).start();
+  }, [open]);
+
+  const bgColor = themeAnim.interpolate({ inputRange: [0, 1], outputRange: ["#f5f5f5", "#000"] });
+
   return (
-    <SafeAreaView style={[styles.mainWrap, darkMode ? styles.bgBlack : styles.bgGrey]}>
-      <FlatList
-        data={list}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <TouchableOpacity onPress={() => { setPicked(item); setOpen(true); }}>
-            <View style={[styles.orderCard, darkMode ? styles.cardDark : styles.cardLight]}>
-              <Image source={{ uri: "https://cdn-icons-png.flaticon.com/512/3595/3595455.png" }} style={styles.pizzaImg} />
-              <View style={styles.orderInfo}>
-                <Text style={[styles.cardHeader, darkMode ? styles.textWhite : styles.textBlack]}>{item.orderNumber}</Text>
-                <Text style={darkMode ? styles.textSubDark : styles.textSubLight}>{item.items}</Text>
-                <Text style={{ color: "#ff6347", fontWeight: "bold", fontSize: 13 }}>{item.time}</Text>
-                <TouchableOpacity onPress={() => deleteOrder(item.id)} style={{ marginTop: 6 }}>
-                  <Text style={{ color: "red", fontWeight: "600" }}>Видалити</Text>
-                </TouchableOpacity>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color="#ccc" />
-            </View>
-          </TouchableOpacity>
-        )}
-      />
-      <Modal visible={open} animationType="slide">
-        <View style={[styles.modalContent, { backgroundColor: darkMode ? "#000" : "#f5f5f5" }]}>
+    <Animated.View style={[styles.mainWrap, { backgroundColor: bgColor }]}> 
+      <SafeAreaView style={styles.mainWrap}>
+        <Animated.View style={{ opacity: headerAnim, transform: [{ translateY: headerAnim.interpolate({ inputRange: [0, 1], outputRange: [-18, 0] }) }] }}>
+          <Text style={[styles.sectionTitle, darkMode ? styles.textWhite : styles.textBlack, { marginHorizontal: 15 }]}>Список замовлень</Text>
+        </Animated.View>
+        <FlatList
+          data={list}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item, index }) => {
+            const anim = itemAnimations.current[index] || new Animated.Value(1);
+            const pressAnim = pressAnimations.current[item.id] || (pressAnimations.current[item.id] = new Animated.Value(1));
+            const animatedStyle = {
+              opacity: anim,
+              transform: [
+                { translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [22, 0] }) },
+                { scale: pressAnim },
+              ],
+            };
+
+            return (
+              <TouchableOpacity
+                activeOpacity={1}
+                onPressIn={() => Animated.spring(pressAnim, { toValue: 0.96, useNativeDriver: true, friction: 12, tension: 120 }).start()}
+                onPressOut={() => Animated.spring(pressAnim, { toValue: 1, useNativeDriver: true, friction: 12, tension: 120 }).start()}
+                onPress={() => { setPicked(item); setOpen(true); }}
+              >
+                <Animated.View style={[styles.orderCard, darkMode ? styles.cardDark : styles.cardLight, animatedStyle]}>
+                  <Image source={{ uri: "https://cdn-icons-png.flaticon.com/512/3595/3595455.png" }} style={styles.pizzaImg} />
+                  <View style={styles.orderInfo}>
+                    <Text style={[styles.cardHeader, darkMode ? styles.textWhite : styles.textBlack]}>{item.orderNumber}</Text>
+                    <Text style={darkMode ? styles.textSubDark : styles.textSubLight}>{item.items}</Text>
+                    <Text style={{ color: "#ff6347", fontWeight: "bold", fontSize: 13 }}>{item.time}</Text>
+                    <TouchableOpacity onPress={() => deleteOrder(item.id)} style={{ marginTop: 6 }}>
+                      <Text style={{ color: "red", fontWeight: "600" }}>Видалити</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color="#ccc" />
+                </Animated.View>
+              </TouchableOpacity>
+            );
+          }}
+        />
+      </SafeAreaView>
+      <Modal visible={open} transparent animationType="fade">
+        <Animated.View style={[styles.modalBackdrop, { opacity: modalAnim }]} />
+        <Animated.View style={[styles.modalContent, {
+          backgroundColor: darkMode ? "#111" : "#f5f5f5",
+          opacity: modalAnim,
+          transform: [{ scale: modalAnim.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1] }) }],
+        }]}
+        >
           <Text style={[styles.modalTitle, { color: darkMode ? "#fff" : "#000" }]}>Деталі замовлення</Text>
           <View style={styles.modalBody}>
             <Text style={[styles.modalText, { color: darkMode ? "#fff" : "#000" }]}>Склад: {picked?.items}</Text>
             <Text style={[styles.modalText, { color: "#ff6347", fontWeight: "bold" }]}>Час: {picked?.time}</Text>
           </View>
           <TouchableOpacity onPress={() => setOpen(false)} style={styles.closeBtn}><Text style={styles.closeBtnText}>Закрити</Text></TouchableOpacity>
-        </View>
+        </Animated.View>
       </Modal>
-    </SafeAreaView>
+    </Animated.View>
   );
 }
 
@@ -194,11 +252,14 @@ function AddScreen({ navigation }) {
 }
 
 function SettingsScreen() {
-  const { logout, darkMode, setDarkMode, userName, kitchenMode, setKitchenMode, persistOrders, setPersistOrders, myPic, changeMyPic } = useContext(AppStateContext);
+  const { logout, darkMode, setDarkMode, userName, kitchenMode, setKitchenMode, persistOrders, setPersistOrders, myPic, changeMyPic, themeAnim } = useContext(AppStateContext);
+  const bgColor = themeAnim.interpolate({ inputRange: [0, 1], outputRange: ["#f5f5f5", "#000"] });
+  const textColor = themeAnim.interpolate({ inputRange: [0, 1], outputRange: ["#000", "#fff"] });
+
   return (
-    <SafeAreaView style={[styles.mainWrap, darkMode ? styles.bgBlack : styles.bgGrey]}>
-      <ScrollView style={{ flex: 1, padding: 15 }}>
-        <Text style={[styles.sectionTitle, darkMode ? styles.textWhite : styles.textBlack]}>Налаштування</Text>
+    <Animated.View style={[styles.mainWrap, { backgroundColor: bgColor }]}> 
+      <Animated.ScrollView style={{ flex: 1, padding: 15 }} contentContainerStyle={{ paddingBottom: 40 }}>
+        <Animated.Text style={[styles.sectionTitle, { color: textColor }]}>Налаштування</Animated.Text>
         <View style={styles.profileBox}>
           <TouchableOpacity onPress={changeMyPic}>
             <Image 
@@ -207,26 +268,26 @@ function SettingsScreen() {
             />
             <View style={styles.camIcon}><Ionicons name="camera" size={16} color="#fff" /></View>
           </TouchableOpacity>
-          <Text style={[styles.userNameText, darkMode ? styles.textWhite : styles.textBlack]}>{userName}</Text>
+          <Animated.Text style={[styles.userNameText, { color: textColor }]}>{userName}</Animated.Text>
         </View>
         <View style={styles.settingsItem}>
-          <Text style={[styles.settingsLabel, darkMode ? styles.textWhite : styles.textBlack]}>Режим кухні</Text>
+          <Animated.Text style={[styles.settingsLabel, { color: textColor }]}>Режим кухні</Animated.Text>
           <Switch value={kitchenMode} onValueChange={setKitchenMode} />
         </View>
         <View style={styles.settingsItem}>
-          <Text style={[styles.settingsLabel, darkMode ? styles.textWhite : styles.textBlack]}>Темна тема</Text>
+          <Animated.Text style={[styles.settingsLabel, { color: textColor }]}>Темна тема</Animated.Text>
           <Switch value={darkMode} onValueChange={setDarkMode} />
         </View>
-        <View style={[styles.settingsItem, { marginTop: 20, borderTopWidth: 1, borderColor: '#333', paddingTop: 20 }]}>
+        <View style={[styles.settingsItem, { marginTop: 20, borderTopWidth: 1, borderColor: '#333', paddingTop: 20 }]}> 
           <View style={{ flex: 1 }}>
-            <Text style={[styles.settingsLabel, darkMode ? styles.textWhite : styles.textBlack]}>Зберігати постійно</Text>
+            <Animated.Text style={[styles.settingsLabel, { color: textColor }]}>Зберігати постійно</Animated.Text>
             <Text style={{ fontSize: 12, color: '#888' }}>Якщо OFF — нові замовлення зникнуть після перезапуску</Text>
           </View>
           <Switch value={persistOrders} onValueChange={setPersistOrders} />
         </View>
         <TouchableOpacity style={[styles.standardBtn, { marginTop: 40, backgroundColor: '#444' }]} onPress={logout}><Text style={styles.standardBtnText}>Вийти</Text></TouchableOpacity>
-      </ScrollView>
-    </SafeAreaView>
+      </Animated.ScrollView>
+    </Animated.View>
   );
 }
 
@@ -261,6 +322,7 @@ export default function App() {
   const [persistOrders, setPersistOrders] = useState(false);
   const [userPhotos, setUserPhotos] = useState({});
   const [myPic, setMyPic] = useState(null);
+  const themeAnim = useRef(new Animated.Value(dark ? 1 : 0)).current;
 
   useEffect(() => {
     const init = async () => {
@@ -305,6 +367,10 @@ export default function App() {
     }
   }, [dark, persistOrders, orderArr, userPhotos, myPic, isReady]);
 
+  useEffect(() => {
+    Animated.timing(themeAnim, { toValue: dark ? 1 : 0, duration: 400, useNativeDriver: false }).start();
+  }, [dark]);
+
   const changeAvatar = async (id) => {
     let res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [1, 1], quality: 0.5 });
     if (!res.canceled) setUserPhotos(prev => ({ ...prev, [id]: res.assets[0].uri }));
@@ -321,6 +387,7 @@ export default function App() {
     addOrder: (o) => setOrderArr([o, ...orderArr]),
     darkMode: dark,
     setDarkMode: setDark,
+    themeAnim,
     userName: uName,
     kitchenMode: kMode,
     setKitchenMode: setKMode,
@@ -380,6 +447,7 @@ const styles = StyleSheet.create({
   textWhite: { color: "#fff" },
   textSubLight: { color: "#555" },
   textSubDark: { color: "#aaa" },
+  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.35)" },
   modalContent: { flex: 1, justifyContent: "center", alignItems: "center", padding: 20 },
   modalTitle: { fontSize: 24, fontWeight: "bold", marginBottom: 25 },
   modalBody: { width: "100%", paddingHorizontal: 30 },
